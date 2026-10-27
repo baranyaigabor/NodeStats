@@ -1,0 +1,63 @@
+[package]
+name = "nodestats"
+version = "0.2.5"
+edition = "2024"
+description = "Lightweight local-first system telemetry agent for NodeStats"
+license = "MIT"
+repository = "https://github.com/baranyaigabor/NodeStats"
+homepage = "https://nodestats.hu"
+readme = "README.md"
+keywords = ["monitoring", "telemetry", "system-metrics", "cli", "hardware"]
+categories = ["command-line-utilities", "os"]
+
+[package.metadata.deb]
+maintainer = "Gabor Baranyai <baranyaigl06@gmail.com>"
+copyright = "2026, Gabor Baranyai <baranyaigl06@gmail.com>"
+license-file = ["LICENSE", "0"]
+extended-description = "Lightweight local-first system telemetry agent for NodeStats. Streams CPU, GPU, memory, power, thermal, disk, network, Docker, Kubernetes, and process metrics to your paired NodeStats account."
+depends = "$auto, ca-certificates"
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/nodestats", "usr/bin/nodestats", "755"],
+    ["README.md", "usr/share/doc/nodestats/README.md", "644"],
+    ["LICENSE", "usr/share/doc/nodestats/LICENSE", "644"],
+]
+systemd-units = { unit-name = "nodestats@", enable = false }
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/nodestats", dest = "/usr/bin/nodestats", mode = "755" },
+    { source = "LICENSE", dest = "/usr/share/licenses/nodestats/LICENSE", mode = "644", doc = true },
+    { source = "README.md", dest = "/usr/share/doc/nodestats/README.md", mode = "644", doc = true },
+]
+
+[package.metadata.generate-rpm.requires]
+ca-certificates = "*"
+
+[dependencies]
+anyhow = "1"
+anstream = "1"
+time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
+clap = { version = "4", features = ["derive","env"] }
+dirs = "6"
+fs2 = "0.4"
+ring = "0.17"
+flate2 = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = { version = "0.37.2", default-features = false, features = ["system","disk","network","component"] }
+tempfile = "3"
+ureq = { version = "2.12", features = ["json"] }
+url = "2"
+wait-timeout = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+base64 = "0.22"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }

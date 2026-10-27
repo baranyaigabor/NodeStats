@@ -1,0 +1,10 @@
+/target
+/dist
+**/*.rs.bk
+*.deb
+*.rpm
+*.pkg
+*.dmg
+*.AppImage
+.DS_Store
+Thumbs.db
