@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: nodestats-identity
+spec:
+    accessModes: [ReadWriteOnce]
+    resources:
+        requests:
+            storage: 16Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: nodestats-client
+spec:
+    replicas: 1
+    strategy:
+        type: Recreate
+    selector:
+        matchLabels:
+            app: nodestats-client
+    template:
+        metadata:
+            labels:
+                app: nodestats-client
+        spec:
+            restartPolicy: Always
+            automountServiceAccountToken: false
+            securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                fsGroup: 65532
+                seccompProfile:
+                    type: RuntimeDefault
+            containers:
+                - name: client
+                  image: nodestats-client:local
+                  imagePullPolicy: Never
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                          drop: [ALL]
+                  env:
+                      - name: NODESTATS_SERVER
+                        value: http://host.docker.internal:8081
+                      - name: POD_NAMESPACE
+                        valueFrom:
+                            fieldRef:
+                                fieldPath: metadata.namespace
+                      - name: WORKLOAD_NAME
+                        valueFrom:
+                            fieldRef:
+                                fieldPath: metadata.labels['app']
+                  resources:
+                      requests:
+                          memory: 16Mi
+                          cpu: 10m
+                      limits:
+                          memory: 64Mi
+                          cpu: 250m
+                  volumeMounts:
+                      - name: state
+                        mountPath: /state
+            volumes:
+                - name: state
+                  persistentVolumeClaim:
+                      claimName: nodestats-identity
