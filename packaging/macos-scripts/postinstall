@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+job=system/com.nodestats.agent
+if [ "$3" = / ] && /bin/launchctl print "$job" >/dev/null 2>&1; then
+    /bin/launchctl kickstart -k "$job"
+fi
