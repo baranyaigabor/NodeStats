@@ -1,0 +1,15 @@
+[Unit]
+Description=NodeStats telemetry agent for %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+ExecStart=/usr/bin/nodestats run --managed
+Restart=always
+RestartSec=30s
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

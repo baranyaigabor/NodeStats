@@ -1,0 +1,1 @@
+deb [signed-by=/usr/share/keyrings/nodestats.gpg] https://baranyaigabor.github.io/NodeStats/apt stable main
