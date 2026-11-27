@@ -118,22 +118,30 @@ jobs:
 
   apt-rpm-pages:
     needs: publish
-    if: startsWith(github.ref, 'refs/tags/v') && secrets.APT_GPG_PRIVATE_KEY != ''
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Check GPG signing key
+        id: gpg_check
+        env:
+          HAS_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY != '' }}
+        run: echo "enabled=${HAS_KEY}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
+        if: steps.gpg_check.outputs.enabled == 'true'
         with:
           ref: gh-pages
           fetch-depth: 0
         continue-on-error: true
       - uses: actions/download-artifact@v4
+        if: steps.gpg_check.outputs.enabled == 'true'
         with:
           pattern: release-linux-*
           merge-multiple: true
           path: incoming
       - name: Import GPG key & build APT/RPM metadata
+        if: steps.gpg_check.outputs.enabled == 'true'
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
           APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}

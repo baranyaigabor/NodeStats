@@ -357,13 +357,13 @@ impl Cgroup {
             let mut rx = 0.;
             let mut tx = 0.;
             for field in stat.split_whitespace() {
-                if let Some((k, v)) = field.split_once('=') {
-                    if let Ok(bytes) = v.parse::<f64>() {
-                        match k {
-                            "rbytes" => rx += bytes,
-                            "wbytes" => tx += bytes,
-                            _ => {}
-                        }
+                if let Some((k, v)) = field.split_once('=')
+                    && let Ok(bytes) = v.parse::<f64>()
+                {
+                    match k {
+                        "rbytes" => rx += bytes,
+                        "wbytes" => tx += bytes,
+                        _ => {}
                     }
                 }
             }
