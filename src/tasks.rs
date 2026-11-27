@@ -355,27 +355,29 @@ impl Tasks {
             .into_iter()
             .map(|(mut entry, uid_num, uid_raw)| {
                 #[cfg(unix)]
-                if let Some(numeric) = uid_num {
-                    let resolved = if let Some(cached) = self.users.get(&numeric) {
-                        Some(cached.clone())
-                    } else if let Some(name) =
-                        lookup_username(numeric).or_else(|| Some(numeric.to_string()))
-                    {
-                        if self.users.len() < 1024 {
-                            self.users.insert(numeric, name.clone());
-                        }
-                        Some(name)
-                    } else {
-                        None
-                    };
-                    entry.user = resolved;
+                {
+                    let _ = uid_raw;
+                    if let Some(numeric) = uid_num {
+                        let resolved = if let Some(cached) = self.users.get(&numeric) {
+                            Some(cached.clone())
+                        } else if let Some(name) =
+                            lookup_username(numeric).or_else(|| Some(numeric.to_string()))
+                        {
+                            if self.users.len() < 1024 {
+                                self.users.insert(numeric, name.clone());
+                            }
+                            Some(name)
+                        } else {
+                            None
+                        };
+                        entry.user = resolved;
+                    }
                 }
                 #[cfg(not(unix))]
                 {
                     let _ = uid_num;
                     entry.user = uid_raw;
                 }
-                let _ = &uid_raw;
                 entry
             })
             .collect()
