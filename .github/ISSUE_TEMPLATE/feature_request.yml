@@ -1,0 +1,17 @@
+name: Feature request
+description: Propose a sensor, platform integration, or CLI improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Target platforms & hardware
+      placeholder: "Linux (sysfs / hwmon), macOS, Windows, Docker..."
