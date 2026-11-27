@@ -1,0 +1,186 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+            platform: linux-amd64
+            deb_arch: amd64
+            rpm_arch: x86_64
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-musl
+            platform: linux-arm64
+            deb_arch: arm64
+            rpm_arch: aarch64
+          - os: macos-15
+            target: aarch64-apple-darwin
+            platform: macos-arm64
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            platform: macos-x64
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+            platform: windows-x64
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            platform: windows-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux musl & packaging tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools rpm
+          cargo install --locked cargo-deb cargo-generate-rpm
+
+      - name: Build release binary
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            export RUSTFLAGS='-C linker=musl-gcc -C target-feature=+crt-static -C relocation-model=static'
+            export CC=musl-gcc
+          fi
+          cargo build --locked --release --target "${{ matrix.target }}"
+
+      - name: Stage release artifacts
+        shell: bash
+        run: |
+          VERSION=$(sed -n 's/^version = "\([0-9.]*\)"$/\1/p' Cargo.toml | head -n 1)
+          mkdir -p dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/nodestats.exe" "dist/nodestats-${VERSION}-${{ matrix.platform }}.exe"
+          else
+            tar -czf "dist/nodestats-${VERSION}-${{ matrix.platform }}.tar.gz" -C "target/${{ matrix.target }}/release" nodestats
+          fi
+
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            mkdir -p target/release
+            cp "target/${{ matrix.target }}/release/nodestats" target/release/nodestats
+            cargo deb --no-build --no-strip --target "${{ matrix.target }}" --output "dist/nodestats_${VERSION}_${{ matrix.deb_arch }}.deb"
+            cargo generate-rpm --target "${{ matrix.target }}" --output "dist/nodestats-${VERSION}-1.${{ matrix.rpm_arch }}.rpm"
+          fi
+
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            pkg_root=$(mktemp -d)
+            install -d "$pkg_root/usr/local/bin"
+            install -m 0755 "target/${{ matrix.target }}/release/nodestats" "$pkg_root/usr/local/bin/nodestats"
+            pkgbuild --root "$pkg_root" --install-location / --identifier com.nodestats.agent \
+              --version "$VERSION" --scripts packaging/macos-scripts \
+              "dist/nodestats-${VERSION}-${{ matrix.platform }}.pkg"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist/*
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      - name: Generate SHA256SUMS
+        working-directory: dist
+        run: |
+          VERSION=$(sed -n 's/^version = "\([0-9.]*\)"$/\1/p' ../Cargo.toml | head -n 1)
+          sha256sum * > "nodestats-${VERSION}-SHA256SUMS.txt"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*
+
+  apt-rpm-pages:
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v') && secrets.APT_GPG_PRIVATE_KEY != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 0
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-linux-*
+          merge-multiple: true
+          path: incoming
+      - name: Import GPG key & build APT/RPM metadata
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y dpkg-dev apt-utils createrepo-c rpm
+          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          KEY_ID=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/{print $5; exit}')
+
+          mkdir -p pages/apt/pool/main pages/rpm/Packages
+          if [ -d apt ]; then cp -a apt/* pages/apt/; fi
+          if [ -d rpm ]; then cp -a rpm/* pages/rpm/; fi
+          cp incoming/*.deb pages/apt/pool/main/
+          cp incoming/*.rpm pages/rpm/Packages/
+
+          mkdir -p pages/apt/dists/stable/main/binary-amd64 pages/apt/dists/stable/main/binary-arm64
+          (
+            cd pages/apt
+            for arch in amd64 arm64; do
+              dpkg-scanpackages --arch "$arch" pool/main > "dists/stable/main/binary-$arch/Packages"
+              gzip -k -f "dists/stable/main/binary-$arch/Packages"
+            done
+            apt-ftparchive -o APT::FTPArchive::Release::Origin="NodeStats" \
+              -o APT::FTPArchive::Release::Suite="stable" \
+              -o APT::FTPArchive::Release::Codename="stable" \
+              -o APT::FTPArchive::Release::Architectures="amd64 arm64" \
+              -o APT::FTPArchive::Release::Components="main" \
+              release dists/stable > dists/stable/Release
+            gpg --batch --yes --passphrase "$APT_GPG_PASSPHRASE" --pinentry-mode loopback -abs -u "$KEY_ID" -o dists/stable/Release.gpg dists/stable/Release
+            gpg --batch --yes --passphrase "$APT_GPG_PASSPHRASE" --pinentry-mode loopback --clearsign -u "$KEY_ID" -o dists/stable/InRelease dists/stable/Release
+            gpg --armor --export "$KEY_ID" > gpg.key
+          )
+
+          (
+            cd pages/rpm
+            createrepo_c .
+            gpg --batch --yes --passphrase "$APT_GPG_PASSPHRASE" --pinentry-mode loopback --detach-sign --armor -u "$KEY_ID" repodata/repomd.xml
+            gpg --armor --export "$KEY_ID" > gpg.key
+          )
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan gh-pages-tmp || true
+          rm -rf apt rpm
+          mv pages/apt pages/rpm .
+          rm -rf pages incoming
+          git add apt rpm
+          git commit -m "Publish APT/RPM packages for ${GITHUB_REF_NAME}"
+          git branch -f gh-pages HEAD
+          git push origin gh-pages --force
